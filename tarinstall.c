@@ -222,7 +222,7 @@ static int app_config(DesktopApp *app)
 	return written == -1 || ret == -1;
 }
 
-int	main(int argc, const char *argv[])
+int main(int argc, const char *argv[])
 {
 	if (argc == 1)
 	{
