@@ -56,4 +56,4 @@ Found app icon : /usr/share/sublime_text_3/Icon/16x16/sublime-text.png
 Found app icon : /usr/share/sublime_text_3/Icon/32x32/sublime-text.png
 Found app icon : /usr/share/sublime_text_3/Icon/128x128/sublime-text.png
 Found app icon : /usr/share/sublime_text_3/Icon/256x256/sublime-text.png
-Creating Desktop File : /usr/share/applications/sublime_text.desktop```
+Creating Desktop File : /usr/share/applications/sublime_text.desktop
