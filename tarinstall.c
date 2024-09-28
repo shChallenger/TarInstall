@@ -1,57 +1,62 @@
 #include "tarinstall.h"
-#include <stdio.h>
 #include <archive.h>
 #include <archive_entry.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <ctype.h>
-#include <strings.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #define __USE_GNU 1
 #include <string.h>
 
-#define INSTALL_DIR "/usr/share/"
-#define INSTALL_DIR_LEN sizeof(INSTALL_DIR) - 1
+#define DESKTOP_HEADER "[Desktop Entry]\nVersion=1.0\nType=Application\nName="
+#define DESKTOP_HEADER_LEN sizeof(DESKTOP_HEADER) - 1
+#define EXEC_HEADER "\nExec="
+#define EXEC_HEADER_LEN sizeof(EXEC_HEADER) - 1
 #define INSTALL_DESKTOP "/usr/share/applications/"
 #define INSTALL_DESKTOP_LEN sizeof(INSTALL_DESKTOP) - 1
-#define DESKTOP_EXTENSION ".desktop"
-#define BIN_DIR "bin/"
-#define ARCHIVE_FLAGS ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL | ARCHIVE_EXTRACT_FFLAGS
-#define FULLPATH_SIZE 1024
-#define DESKTOP_SIZE 8192
-#define DESKTOP_HEADER "[Desktop Entry]\nVersion=1.0\nType=Application\nName="
-#define DESKTOP_HEADER_SIZE sizeof(DESKTOP_HEADER) - 1
-#define WM_CLASS_HEADER "\nStartupWMClass="
-#define WM_CLASS_HEADER_SIZE sizeof(WM_CLASS_HEADER) - 1
-#define EXEC_HEADER "\nExec="
-#define EXEC_HEADER_SIZE sizeof(EXEC_HEADER) - 1
+#define INSTALL_DIR "/usr/share/"
+#define INSTALL_DIR_LEN sizeof(INSTALL_DIR) - 1
 #define ICON_HEADER "\nIcon="
-#define ICON_HEADER_SIZE sizeof(ICON_HEADER) - 1
+#define ICON_HEADER_LEN sizeof(ICON_HEADER) - 1
 #define NO_TERMINAL "\nTerminal=false\n"
-#define NO_TERMINAL_SIZE sizeof(NO_TERMINAL) - 1
+#define NO_TERMINAL_LEN sizeof(NO_TERMINAL) - 1
+#define WM_CLASS_HEADER "\nStartupWMClass="
+#define WM_CLASS_HEADER_LEN sizeof(WM_CLASS_HEADER) - 1
 
-static int memalphacmp(const char *s1, const char *s2, size_t size)
+#define MAX_DESKTOP_LEN 8192
+#define MAX_FULLPATH_LEN 1024
+
+#define ARCHIVE_FLAGS ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL | ARCHIVE_EXTRACT_FFLAGS
+#define BIN_DIR "bin/"
+#define DESKTOP_EXTENSION ".desktop"
+
+static int memalphacmp(const void *s1, const void *s2, size_t size)
 {
 	if (size == 0)
-		return (0);
+		return 0;
+	
+	const char *s1_str = (const char *)s1;
+	const char *s2_str = (const char *)s2;
 
-	while (--size && (!isalpha(*s1) || !isalpha(*s2) || *s1 == *s2))
+	// Compare all alpha characters
+	while (--size && (!isalpha(*s1_str) || !isalpha(*s2_str) || *s1_str == *s2_str))
 	{
-		s1++;
-		s2++;
+		s1_str++;
+		s2_str++;
 	}
 
-	return (*s1 - *s2);
+	return *s1_str - *s2_str;
 }
 
 static int app_extract(const char *path, DesktopApp *app)
 {
-    // Open the archive reader
+	// Open the archive reader
 	struct archive *archive = archive_read_new();
 
 	if (archive == NULL)
 	{
 		fprintf(stderr, "Error creating archive : cannot allocate structure\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	// Apply support settings
@@ -66,14 +71,14 @@ static int app_extract(const char *path, DesktopApp *app)
 	if (ret != ARCHIVE_OK)
 	{
 		fprintf(stderr, "Error opening archive: %s\n", archive_error_string(archive));
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	// Pointer for entry
 	struct archive_entry *entry;
 
 	// Fullpath buffer
-	char full_path[FULLPATH_SIZE] = {0};
+	char full_path[MAX_FULLPATH_LEN] = {0};
 	app->bin_size = 0;
 	app->icon_size = 0;
 
@@ -138,13 +143,16 @@ static int app_extract(const char *path, DesktopApp *app)
 		if (icon_name_size < last_icon_name_size || memalphacmp(app->name, file_end + 1, file_ext - file_end - 1))
 			continue;
 
+		ret = stat(full_path, &file_info);
+
 		// Get file stat for size info
-		if (stat(full_path, &file_info) != 0)
+		if (ret != ARCHIVE_OK)
 		{
 			perror("stat");
 			break;
 		}
 
+		// Check if name is bigger / file size is bigger (for better icon quality)
 		if (icon_name_size <= last_icon_name_size && file_info.st_size <= last_icon_size)
 			continue;
 
@@ -158,11 +166,16 @@ static int app_extract(const char *path, DesktopApp *app)
 	return archive_read_free(archive) || ret || !app->bin_size;
 }
 
-static char *memlowercpy(char *dst, const char *src, size_t size)
+static void *memplowercpy(void *dst, const void *src, size_t size)
 {
+	char *dst_str = (char *)dst;
+	const char *src_str = (const char *)src;
+
+	// Copy src to dst in lower mode
 	while (size--)
-		*dst++ = tolower(*src++);
-	return dst;
+		*dst_str++ = tolower(*src_str++);
+	
+	return dst_str;
 }
 
 static int app_config(DesktopApp *app)
@@ -177,13 +190,13 @@ static int app_config(DesktopApp *app)
 		bin_name, bin_name_size), DESKTOP_EXTENSION, sizeof(DESKTOP_EXTENSION));
 
 	// Create Desktop file Content
-	char desktop_content[DESKTOP_SIZE];
+	char desktop_content[MAX_DESKTOP_LEN];
 
 	size_t app_name_size = app->name_size - (app->name[app->name_size - 1] == '/');
 
-	const char *desktop_end = mempcpy(mempcpy(mempcpy(mempcpy(mempcpy(memlowercpy(mempcpy(mempcpy(mempcpy(desktop_content, DESKTOP_HEADER, DESKTOP_HEADER_SIZE),
-		app->name, app_name_size), WM_CLASS_HEADER, WM_CLASS_HEADER_SIZE), bin_name, bin_name_size), EXEC_HEADER, EXEC_HEADER_SIZE), app->bin, app->bin_size),
-		ICON_HEADER, ICON_HEADER_SIZE), app->icon, app->icon_size), NO_TERMINAL, NO_TERMINAL_SIZE);
+	const char *desktop_end = mempcpy(mempcpy(mempcpy(mempcpy(mempcpy(memplowercpy(mempcpy(mempcpy(mempcpy(desktop_content, DESKTOP_HEADER, DESKTOP_HEADER_LEN),
+		app->name, app_name_size), WM_CLASS_HEADER, WM_CLASS_HEADER_LEN), bin_name, bin_name_size), EXEC_HEADER, EXEC_HEADER_LEN), app->bin, app->bin_size),
+		ICON_HEADER, ICON_HEADER_LEN), app->icon, app->icon_size), NO_TERMINAL, NO_TERMINAL_LEN);
 
 	printf("Creating Desktop File : %s\n", desktop_path);
 
@@ -193,7 +206,7 @@ static int app_config(DesktopApp *app)
 	if (fd == -1)
 	{
 		perror("open");
-		return 0;
+		return EXIT_FAILURE;
 	}
 
 	ssize_t written = write(fd, desktop_content, desktop_end - desktop_content);
@@ -206,24 +219,25 @@ static int app_config(DesktopApp *app)
 	if (ret == -1)
 		perror("close");
 
-	return (written != -1 && ret == 0);
+	return written == -1 || ret == -1;
 }
 
 int	main(int argc, const char *argv[])
 {
 	if (argc == 1)
 	{
-		printf("%s: missing path\n", argv[0]);
-		return 1;
+		fprintf(stderr, "%s: missing path\n", argv[0]);
+		return EXIT_FAILURE;
 	}
 
 	DesktopApp app;
+	int ret = EXIT_SUCCESS;
 	
 	while (--argc)
 	{
-		if (app_extract(*++argv, &app) == ARCHIVE_OK)
-			app_config(&app);
+		if (app_extract(*++argv, &app) != EXIT_SUCCESS || app_config(&app) != EXIT_SUCCESS)
+			ret = EXIT_FAILURE;
 	}
 
-	return 0;
+	return ret;
 }

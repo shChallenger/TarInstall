@@ -2,10 +2,10 @@
 
 # define TARINSTALL_H
 
+# include <stddef.h>
+
 # define MAX_APPNAME_LEN 512
 # define MAX_PATH_LEN 2048
-
-# include <stddef.h>
 
 typedef struct s_desktopapp
 {
