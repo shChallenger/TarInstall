@@ -29,7 +29,7 @@
 #define NO_TERMINAL "\nTerminal=false\n"
 #define NO_TERMINAL_SIZE sizeof(NO_TERMINAL) - 1
 
-static int memnalphacmp(const char *s1, const char *s2, size_t size)
+static int memalphacmp(const char *s1, const char *s2, size_t size)
 {
 	if (size == 0)
 		return (0);
@@ -46,7 +46,7 @@ static int memnalphacmp(const char *s1, const char *s2, size_t size)
 static int app_extract(const char *path, DesktopApp *app)
 {
     // Open the archive reader
-    struct archive *archive = archive_read_new();
+	struct archive *archive = archive_read_new();
 
 	if (archive == NULL)
 	{
@@ -55,18 +55,18 @@ static int app_extract(const char *path, DesktopApp *app)
 	}
 
 	// Apply support settings
-    archive_read_support_format_tar(archive);
-    archive_read_support_filter_gzip(archive);  // For .tar.gz
-    archive_read_support_filter_xz(archive);    // For .tar.xz
+	archive_read_support_format_tar(archive);
+	archive_read_support_filter_gzip(archive);  // For .tar.gz
+	archive_read_support_filter_xz(archive);    // For .tar.xz
 	archive_read_support_filter_bzip2(archive); // For .tar.bz2
 
-    // Open the archive path
-    int ret = archive_read_open_filename(archive, path, 10240);  // Read 10KB blocks
+	// Open the archive path
+	int ret = archive_read_open_filename(archive, path, 10240);  // Read 10KB blocks
     
 	if (ret != ARCHIVE_OK)
 	{
 		fprintf(stderr, "Error opening archive: %s\n", archive_error_string(archive));
-		goto end;
+		return 1;
 	}
 
 	// Pointer for entry
@@ -77,14 +77,15 @@ static int app_extract(const char *path, DesktopApp *app)
 	app->bin_size = 0;
 	app->icon_size = 0;
 
+	// To compare icon files
 	size_t last_icon_name_size = 0;
 	off_t last_icon_size = 0;
 
-    // Extract each entry
-    while (archive_read_next_header(archive, &entry) == ARCHIVE_OK)
+	// Extract each entry
+	while (archive_read_next_header(archive, &entry) == ARCHIVE_OK)
 	{
-        // Set the target directory
-        const char *current_file = archive_entry_pathname(entry);
+		// Set the target directory
+		const char *current_file = archive_entry_pathname(entry);
 
 		int first_entry = *full_path == 0;
 
@@ -103,59 +104,61 @@ static int app_extract(const char *path, DesktopApp *app)
 		// Search app executable
 		const char *file_end = strrchr(full_path, '/');
 		const char *file_ext = file_end ? strchr(file_end, '.') : NULL;
-		
-		if (app->bin_size == 0)
+
+		if (app->bin_size == 0 && file_end && file_end[1] && !file_ext
+			&& memalphacmp(app->name, file_end + 1, path_end - file_end - 2) == 0)
 		{
-			if (file_end && file_end[1] && !file_ext && memnalphacmp(app->name, file_end + 1, path_end - file_end - 2) == 0)
-			{
-				printf("Found app bin : %s\n", full_path);
-				app->bin_size = INSTALL_DIR_LEN + file_name_length;
-				mempcpy(app->bin, full_path, app->bin_size + 1);
-			}
+			printf("Found app bin : %s\n", full_path);
+			app->bin_size = INSTALL_DIR_LEN + file_name_length;
+			mempcpy(app->bin, full_path, app->bin_size + 1);
 		}
 
 		// Set archive path
-        archive_entry_set_pathname(entry, full_path);
+		archive_entry_set_pathname(entry, full_path);
 
-        // Extract the file
-        ret = archive_read_extract(archive, entry, ARCHIVE_FLAGS);
+		// Extract the file
+		ret = archive_read_extract(archive, entry, ARCHIVE_FLAGS);
 
-        if (ret != ARCHIVE_OK)
+		if (ret != ARCHIVE_OK)
 		{
 			fprintf(stderr, "Error extracting file: %s\n", archive_error_string(archive));
-			goto end;
+			break;
 		}
 
-		// Search for icon file (we need file length to get better icon)
-		if (file_ext && (strcasestr(file_ext, ".png") || strcasestr(file_ext, ".svg")))
+		// Search for icon file
+
+		// Check if file extension is png or svg
+		if (!file_ext || (strcasestr(file_ext, ".png") == NULL && strcasestr(file_ext, ".svg") == NULL))
+			continue;
+		
+		size_t icon_name_size = file_ext - file_end - 1;
+		struct stat file_info;
+
+		// Check if app->name starts with file name and name size is bigger than last one (so nearest from real app name)
+		if (icon_name_size < last_icon_name_size || memalphacmp(app->name, file_end + 1, file_ext - file_end - 1))
+			continue;
+
+		// Get file stat for size info
+		if (stat(full_path, &file_info) != 0)
 		{
-			size_t icon_name_size = file_ext - file_end - 1;
-			struct stat file_info;
-
-			if (icon_name_size >= last_icon_name_size && memnalphacmp(app->name, file_end + 1, file_ext - file_end - 1) == 0)
-			{
-				if (stat(full_path, &file_info) != 0)
-				{
-					perror("stat");
-					goto end;
-				}
-				if (icon_name_size > last_icon_name_size || last_icon_size < file_info.st_size)
-				{
-					printf("Found app icon : %s\n", full_path);
-					last_icon_size = file_info.st_size;
-					last_icon_name_size = icon_name_size;
-					app->icon_size = INSTALL_DIR_LEN + file_name_length;
-					mempcpy(app->icon, full_path, app->icon_size + 1);
-				}
-			}
+			perror("stat");
+			break;
 		}
-    }
 
-	end:
-    return archive_read_free(archive) || ret || !app->bin_size;
+		if (icon_name_size <= last_icon_name_size && file_info.st_size <= last_icon_size)
+			continue;
+
+		printf("Found app icon : %s\n", full_path);
+		last_icon_size = file_info.st_size;
+		last_icon_name_size = icon_name_size;
+		app->icon_size = INSTALL_DIR_LEN + file_name_length;
+		mempcpy(app->icon, full_path, app->icon_size + 1);
+	}
+
+	return archive_read_free(archive) || ret || !app->bin_size;
 }
 
-static char *stp_nmin_cpy(char *dst, const char *src, size_t size)
+static char *memlowercpy(char *dst, const char *src, size_t size)
 {
 	while (size--)
 		*dst++ = tolower(*src++);
@@ -164,6 +167,7 @@ static char *stp_nmin_cpy(char *dst, const char *src, size_t size)
 
 static int app_config(DesktopApp *app)
 {
+	// Get Desktop file Path
 	char desktop_path[MAX_PATH_LEN];
 
 	const char *bin_name = strrchr(app->bin, '/') + 1;
@@ -172,8 +176,18 @@ static int app_config(DesktopApp *app)
 	mempcpy(mempcpy(mempcpy(desktop_path, INSTALL_DESKTOP, INSTALL_DESKTOP_LEN),
 		bin_name, bin_name_size), DESKTOP_EXTENSION, sizeof(DESKTOP_EXTENSION));
 
+	// Create Desktop file Content
+	char desktop_content[DESKTOP_SIZE];
+
+	size_t app_name_size = app->name_size - (app->name[app->name_size - 1] == '/');
+
+	const char *desktop_end = mempcpy(mempcpy(mempcpy(mempcpy(mempcpy(memlowercpy(mempcpy(mempcpy(mempcpy(desktop_content, DESKTOP_HEADER, DESKTOP_HEADER_SIZE),
+		app->name, app_name_size), WM_CLASS_HEADER, WM_CLASS_HEADER_SIZE), bin_name, bin_name_size), EXEC_HEADER, EXEC_HEADER_SIZE), app->bin, app->bin_size),
+		ICON_HEADER, ICON_HEADER_SIZE), app->icon, app->icon_size), NO_TERMINAL, NO_TERMINAL_SIZE);
+
 	printf("Creating Desktop File : %s\n", desktop_path);
 
+	// Create file & copy content
 	int fd = open(desktop_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
 	if (fd == -1)
@@ -181,14 +195,6 @@ static int app_config(DesktopApp *app)
 		perror("open");
 		return 0;
 	}
-
-	char desktop_content[DESKTOP_SIZE];
-
-	size_t app_name_size = app->name_size - (app->name[app->name_size - 1] == '/');
-
-	const char *desktop_end = mempcpy(mempcpy(mempcpy(mempcpy(mempcpy(stp_nmin_cpy(mempcpy(mempcpy(mempcpy(desktop_content, DESKTOP_HEADER, DESKTOP_HEADER_SIZE),
-		app->name, app_name_size), WM_CLASS_HEADER, WM_CLASS_HEADER_SIZE), bin_name, bin_name_size), EXEC_HEADER, EXEC_HEADER_SIZE), app->bin, app->bin_size),
-		ICON_HEADER, ICON_HEADER_SIZE), app->icon, app->icon_size), NO_TERMINAL, NO_TERMINAL_SIZE);
 
 	ssize_t written = write(fd, desktop_content, desktop_end - desktop_content);
 
