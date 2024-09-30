@@ -30,7 +30,7 @@
 #define BIN_DIR "bin/"
 #define DESKTOP_EXTENSION ".desktop"
 
-static int memalphacmp(const void *s1, const void *s2, size_t size)
+static int memalphacasecmp(const void *s1, const void *s2, size_t size)
 {
 	if (size == 0)
 		return 0;
@@ -39,7 +39,7 @@ static int memalphacmp(const void *s1, const void *s2, size_t size)
 	const char *s2_str = (const char *)s2;
 
 	// Compare all alpha characters
-	while (--size && (!isalpha(*s1_str) || !isalpha(*s2_str) || *s1_str == *s2_str))
+	while (--size && (!isalpha(*s1_str) || !isalpha(*s2_str) || tolower(*s1_str) == tolower(*s2_str)))
 	{
 		s1_str++;
 		s2_str++;
@@ -111,7 +111,7 @@ static int app_extract(const char *path, DesktopApp *app)
 		const char *file_ext = file_end ? strchr(file_end, '.') : NULL;
 
 		if (app->bin_size == 0 && file_end && file_end[1] && !file_ext
-			&& memalphacmp(app->name, file_end + 1, path_end - file_end - 2) == 0)
+			&& memalphacasecmp(app->name, file_end + 1, path_end - file_end - 2) == 0)
 		{
 			printf("Found app bin : %s\n", full_path);
 			app->bin_size = INSTALL_DIR_LEN + file_name_length;
@@ -140,7 +140,7 @@ static int app_extract(const char *path, DesktopApp *app)
 		struct stat file_info;
 
 		// Check if app->name starts with file name and name size is bigger than last one (so nearest from real app name)
-		if (icon_name_size < last_icon_name_size || memalphacmp(app->name, file_end + 1, file_ext - file_end - 1))
+		if (icon_name_size < last_icon_name_size || memalphacasecmp(app->name, file_end + 1, file_ext - file_end - 1))
 			continue;
 
 		ret = stat(full_path, &file_info);
@@ -186,7 +186,7 @@ static int app_config(DesktopApp *app)
 	const char *bin_name = strrchr(app->bin, '/') + 1;
 	size_t bin_name_size = app->bin_size - (bin_name - app->bin);
 
-	mempcpy(mempcpy(mempcpy(desktop_path, INSTALL_DESKTOP, INSTALL_DESKTOP_LEN),
+	mempcpy(memplowercpy(mempcpy(desktop_path, INSTALL_DESKTOP, INSTALL_DESKTOP_LEN),
 		bin_name, bin_name_size), DESKTOP_EXTENSION, sizeof(DESKTOP_EXTENSION));
 
 	// Create Desktop file Content
