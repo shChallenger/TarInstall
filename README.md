@@ -14,7 +14,7 @@ You can now use tarinstall from everywhere
 
 ```bash
 sudo git clone https://github.com/shChallenger/TarInstall /usr/share/tarinstall
-sudo make -C /usr/share/TarInstall all clean
+sudo make -C /usr/share/tarinstall all clean
 wget https://download.sublimetext.com/sublime_text_3_build_3211_x64.tar.bz2
 sudo tarinstall sublime_text_3_build_3211_x64.tar.bz2
 rm sublime_text_3_build_3211_x64.tar.bz2
